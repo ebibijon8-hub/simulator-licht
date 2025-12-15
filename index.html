@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OP-Leuchten Simulator 3D (Dual + Raum)</title>
+    <!-- Tailwind CSS für das UI -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js für die 3D Grafik - Version r128 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- OrbitControls für die Kamerasteuerung -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; }
+        #canvas-container { width: 100vw; height: 100vh; background-color: #1a202c; }
+        
+        /* Custom Slider Styling */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #3b82f6;
+            margin-top: -6px;
+            cursor: pointer;
+            border: 2px solid #1a202c;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #4a5568;
+            border-radius: 2px;
+        }
+        
+        /* Active Lamp Indicator Styling */
+        .lamp-selector input:checked + label {
+            background-color: #3b82f6;
+            color: white;
+            border-color: #3b82f6;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- UI Overlay -->
+    <div class="absolute top-0 right-0 h-full w-80 bg-gray-900 bg-opacity-95 text-white p-6 overflow-y-auto shadow-xl z-10 backdrop-blur-sm border-l border-gray-700">
+        <h1 class="text-xl font-bold mb-1 text-blue-400">OP-Licht Simulator</h1>
+        <p class="text-xs text-gray-400 mb-6">Dual-System v2.1 (Variante 1)</p>
+
+        <!-- Lamp Selector -->
+        <div class="mb-6 p-1 bg-gray-800 rounded-lg flex lamp-selector border border-gray-700">
+            <div class="flex-1">
+                <input type="radio" name="lamp-select" id="select-lamp-0" class="hidden" checked>
+                <label for="select-lamp-0" class="block text-center text-sm py-2 rounded-md cursor-pointer transition-colors hover:bg-gray-700 text-gray-300 font-medium">Leuchte 1</label>
+            </div>
+            <div class="flex-1">
+                <input type="radio" name="lamp-select" id="select-lamp-1" class="hidden">
+                <label for="select-lamp-1" class="block text-center text-sm py-2 rounded-md cursor-pointer transition-colors hover:bg-gray-700 text-gray-300 font-medium">Leuchte 2</label>
+            </div>
+        </div>
+
+        <!-- Controls Container (updates dynamically) -->
+        <div id="controls-area">
+            <!-- Position Controls -->
+            <div class="mb-6 border-b border-gray-700 pb-4">
+                <h2 class="text-sm font-semibold uppercase tracking-wider text-gray-500 mb-3">Positionierung (Stativ)</h2>
+                
+                <label class="block text-xs mb-1 text-gray-300">Rotation Basis (Hauptachse)</label>
+                <input type="range" id="arm-rotation" min="-180" max="180" value="0" class="mb-4">
+                
+                <label class="block text-xs mb-1 text-gray-300">Ausleger Position</label>
+                <input type="range" id="arm-extension" min="-30" max="30" value="0" class="mb-4">
+            </div>
+
+            <!-- Head Controls -->
+            <div class="mb-6 border-b border-gray-700 pb-4">
+                <h2 class="text-sm font-semibold uppercase tracking-wider text-gray-500 mb-3">Leuchtenkopf Neigung</h2>
+                
+                <label class="block text-xs mb-1 text-gray-300">Kippen (X-Achse)</label>
+                <input type="range" id="head-tilt-x" min="-90" max="90" value="0" class="mb-4">
+                
+                <label class="block text-xs mb-1 text-gray-300">Drehen (Z-Achse)</label>
+                <input type="range" id="head-tilt-z" min="-45" max="45" value="0" class="mb-4">
+            </div>
+
+            <!-- Light Properties -->
+            <div class="mb-6 border-b border-gray-700 pb-4">
+                <h2 class="text-sm font-semibold uppercase tracking-wider text-gray-500 mb-3">Lichtparameter</h2>
+                
+                <label class="block text-xs mb-1 text-gray-300">Intensität</label>
+                <input type="range" id="light-intensity" min="0" max="2" step="0.1" value="1.2" class="mb-4">
+                
+                <label class="block text-xs mb-1 text-gray-300">Fokus (Kegel)</label>
+                <input type="range" id="light-angle" min="0.1" max="0.9" step="0.05" value="0.5" class="mb-4">
+                
+                <label class="block text-xs mb-1 text-gray-300">Farbtemperatur</label>
+                <div class="flex justify-between text-xs text-gray-500 px-1 mb-1">
+                    <span>Warm</span>
+                    <span>Kalt</span>
+                </div>
+                <input type="range" id="light-color" min="0" max="1" step="0.1" value="0.8" class="mb-4">
+            </div>
+        </div>
+
+        <!-- Environment -->
+        <div class="mb-4">
+            <h2 class="text-sm font-semibold uppercase tracking-wider text-gray-500 mb-3">Ansicht</h2>
+            
+            <!-- Wall Toggle -->
+            <div class="flex items-center mb-2">
+                <input type="checkbox" id="show-walls" class="mr-2 h-4 w-4 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 focus:ring-2" checked>
+                <label for="show-walls" class="text-sm text-gray-300">Raumwände anzeigen</label>
+            </div>
+
+            <div class="flex items-center mb-2">
+                <input type="checkbox" id="show-helpers" class="mr-2 h-4 w-4 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 focus:ring-2">
+                <label for="show-helpers" class="text-sm text-gray-300">Lichtkegel Hilfslinien</label>
+            </div>
+            
+            <div class="mt-6 p-3 bg-blue-900 bg-opacity-30 border border-blue-800 rounded text-xs text-blue-200">
+                <strong class="block mb-1">Tipp:</strong>
+                Die Wände sind von außen unsichtbar (Back-Face Culling), werfen/empfangen aber Schatten im Inneren.
+            </div>
+        </div>
+    </div>
+
+    <!-- 3D Canvas -->
+    <div id="canvas-container"></div>
+
+    <script>
+        // --- Globale Variablen ---
+        let scene, camera, renderer, controls;
+        let lampGroup; // Hauptgruppe Decke
+        let lamps = []; // Array für Lampen-Objekte und Status
+        let roomWalls; // Referenz für Wände
+        let activeLampIndex = 0; // Welche Lampe wird gerade bearbeitet?
+
+        // Standardwerte für eine neue Lampe
+        const defaultParams = {
+            armRotation: 0,
+            armExtension: 0,
+            headTiltX: 0,
+            headTiltZ: 0,
+            intensity: 1.2,
+            angle: 0.5,
+            colorVal: 0.8
+        };
+
+        // Status für beide Lampen
+        // Lampe 0 startet etwas gedreht, Lampe 1 entgegengesetzt
+        const lampStates = [
+            { ...defaultParams, armRotation: 45, intensity: 1.5 },
+            { ...defaultParams, armRotation: -45, intensity: 1.0, headTiltX: -20 }
+        ];
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a202c); 
+            scene.fog = new THREE.Fog(0x1a202c, 10, 40);
+
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(8, 5, 8); // Etwas weiter weg, um den Raum zu sehen
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.target.set(0, 1.5, 0); // Fokus etwas höher
+
+            createRoom();
+            createOperatingTable();
+            createDualLampSystem(); 
+
+            setupEventListeners();
+            
+            // Initial UI Update für Lampe 0
+            updateUIControls();
+            
+            animate();
+        }
+
+        function createRoom() {
+            // 1. Boden (Existierendes Objekt)
+            const floorGeo = new THREE.PlaneGeometry(20, 20);
+            const floorMat = new THREE.MeshStandardMaterial({ color: 0x8899aa, roughness: 0.4, metalness: 0.1 });
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
+            scene.add(floor);
+
+            const gridHelper = new THREE.GridHelper(20, 20, 0x4a5568, 0x2d3748);
+            scene.add(gridHelper);
+
+            // 2. NEU: Wände und Decke (Box mit Innenseiten-Rendering - Variante 1)
+            // Wir machen die Box 10x5x10 groß.
+            const roomGeo = new THREE.BoxGeometry(10, 5, 10);
+            
+            // Material: Side = BackSide sorgt dafür, dass wir von außen hineinschauen können (Culling)
+            const roomMat = new THREE.MeshStandardMaterial({ 
+                color: 0xeef2f6, // Helles klinisches Weiß
+                roughness: 0.8,
+                side: THREE.BackSide 
+            });
+
+            roomWalls = new THREE.Mesh(roomGeo, roomMat);
+            
+            // Positionierung:
+            // Höhe 5 -> Mitte bei 2.5. 
+            // WICHTIG: Wir setzen es auf 2.49, damit der Boden der Box knapp UNTER dem Hauptboden (y=0) liegt.
+            // Das verhindert "Z-Fighting" (Flackern) am Boden.
+            roomWalls.position.y = 2.49; 
+            
+            roomWalls.receiveShadow = true; // Wände fangen Schatten
+            // roomWalls.castShadow = true; // Optional: Wände werfen Schatten (meist nicht nötig bei BackFace)
+            
+            scene.add(roomWalls);
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.25);
+            scene.add(ambientLight);
+        }
+
+        function createOperatingTable() {
+            const tableGroup = new THREE.Group();
+            
+            // Basis
+            const base = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.2, 0.3, 0.8, 16),
+                new THREE.MeshStandardMaterial({ color: 0xaaaaaa, roughness: 0.3, metalness: 0.8 })
+            );
+            base.position.y = 0.4;
+            base.castShadow = true;
+            base.receiveShadow = true;
+            tableGroup.add(base);
+
+            // Tischplatte
+            const top = new THREE.Mesh(
+                new THREE.BoxGeometry(0.8, 0.1, 2.2),
+                new THREE.MeshStandardMaterial({ color: 0x3182ce, roughness: 0.9 })
+            );
+            top.position.y = 0.85;
+            top.castShadow = true;
+            top.receiveShadow = true;
+            tableGroup.add(top);
+
+            // Patient (Cylinder für r128 Kompatibilität)
+            const patient = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.25, 0.25, 1.7, 16),
+                new THREE.MeshStandardMaterial({ color: 0xddcbb0 })
+            );
+            patient.rotation.x = Math.PI / 2;
+            patient.rotation.z = -0.05;
+            patient.position.y = 1.1;
+            patient.castShadow = true;
+            patient.receiveShadow = true;
+            tableGroup.add(patient);
+
+            // Abdecktuch (Grün)
+            const cover = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.32, 0.32, 0.8, 16, 1, true, 0, Math.PI),
+                new THREE.MeshStandardMaterial({ color: 0x2f855a, side: THREE.DoubleSide })
+            );
+            cover.rotation.z = Math.PI / 2;
+            cover.position.y = 1.12;
+            cover.castShadow = true;
+            tableGroup.add(cover);
+
+            scene.add(tableGroup);
+        }
+
+        function createDualLampSystem() {
+            lampGroup = new THREE.Group();
+            lampGroup.position.set(0, 4.9, 0); // An der Decke des Raums (Raumhöhe ca 5)
+            scene.add(lampGroup);
+
+            const whitePaintMat = new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.2 });
+            
+            // Zentraler Deckenpfosten
+            const pole = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.12, 0.12, 1.5), 
+                whitePaintMat
+            );
+            pole.position.y = -0.5; // Hängt von der Decke runter
+            lampGroup.add(pole);
+
+            // Wir erstellen zwei Lampenarme am selben Pfosten
+            createSingleLampArm(0, -0.5, whitePaintMat); // Lampe 1
+            createSingleLampArm(1, -0.2, whitePaintMat); // Lampe 2
+            
+            // Initial update aller Lampen
+            updateLampVisuals(0);
+            updateLampVisuals(1);
+        }
+
+        function createSingleLampArm(id, offsetY, material) {
+            const jointMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.5 });
+            
+            // 1. Pivot an der Stange (Rotation Y)
+            const armPivot = new THREE.Group();
+            armPivot.position.y = offsetY; 
+            lampGroup.add(armPivot);
+
+            // Arm Geometrie
+            const armGeo = new THREE.BoxGeometry(0.1, 0.1, 1.4);
+            const arm = new THREE.Mesh(armGeo, material);
+            arm.position.z = 0.7; // Arm ragt raus
+            arm.castShadow = true;
+            armPivot.add(arm);
+
+            // 2. Kopf Pivot (am Ende des Arms)
+            const headPivot = new THREE.Group();
+            headPivot.position.z = 1.4; 
+            headPivot.position.y = -0.15;
+            armPivot.add(headPivot);
+
+            // Gelenkkugel
+            headPivot.add(new THREE.Mesh(new THREE.SphereGeometry(0.12), jointMat));
+
+            // 3. Kopf Container (für Neigung)
+            const headContainer = new THREE.Group();
+            headContainer.position.y = -0.15;
+            headPivot.add(headContainer);
+
+            // Lampenkopf Design
+            const lampHead = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.35, 0.1, 0.15, 32),
+                material
+            );
+            headContainer.add(lampHead);
+
+            // Glas/Leuchtfläche
+            const glass = new THREE.Mesh(
+                new THREE.CircleGeometry(0.33, 32),
+                new THREE.MeshBasicMaterial({ color: 0xffffff })
+            );
+            glass.rotation.x = Math.PI / 2;
+            glass.position.y = -0.08;
+            headContainer.add(glass);
+
+            // Lichtquelle
+            const lightSource = new THREE.SpotLight(0xffffee, 0); 
+            lightSource.position.set(0, 0, 0);
+            lightSource.target.position.set(0, -1, 0);
+            
+            lightSource.angle = 0.5;
+            lightSource.penumbra = 0.3;
+            lightSource.decay = 1.4;
+            lightSource.distance = 15;
+            
+            lightSource.castShadow = true;
+            lightSource.shadow.mapSize.width = 1024;
+            lightSource.shadow.mapSize.height = 1024;
+            lightSource.shadow.bias = -0.0001;
+            
+            headContainer.add(lightSource);
+            headContainer.add(lightSource.target);
+
+            // Helper
+            const lightHelper = new THREE.SpotLightHelper(lightSource);
+            lightHelper.visible = false;
+            scene.add(lightHelper);
+
+            // Speichere Referenzen
+            lamps[id] = {
+                armPivot: armPivot,
+                headPivot: headPivot,
+                headContainer: headContainer,
+                lightSource: lightSource,
+                helper: lightHelper
+            };
+        }
+
+        function updateLampVisuals(id) {
+            const state = lampStates[id];
+            const obj = lamps[id];
+
+            // 1. Arm Rotation (Y)
+            obj.armPivot.rotation.y = THREE.Math.degToRad(state.armRotation);
+
+            // 2. Extension (simuliert)
+            obj.headPivot.position.z = 1.4 + (state.armExtension / 100);
+
+            // 3. Kopf Neigung
+            obj.headContainer.rotation.x = THREE.Math.degToRad(state.headTiltX);
+            obj.headContainer.rotation.z = THREE.Math.degToRad(state.headTiltZ);
+
+            // 4. Licht
+            obj.lightSource.intensity = state.intensity;
+            obj.lightSource.angle = state.angle;
+
+            // Farbe
+            const warm = new THREE.Color(0xffaa77);
+            const cold = new THREE.Color(0xccddff);
+            const neutral = new THREE.Color(0xffffff);
+            
+            if (state.colorVal < 0.5) {
+                obj.lightSource.color.lerpColors(warm, neutral, state.colorVal * 2);
+            } else {
+                obj.lightSource.color.lerpColors(neutral, cold, (state.colorVal - 0.5) * 2);
+            }
+
+            // Helper
+            obj.helper.visible = document.getElementById('show-helpers').checked;
+            obj.helper.update();
+        }
+
+        function updateUIControls() {
+            // Setzt die Slider-Werte basierend auf der aktuellen Lampe
+            const s = lampStates[activeLampIndex];
+            document.getElementById('arm-rotation').value = s.armRotation;
+            document.getElementById('arm-extension').value = s.armExtension;
+            document.getElementById('head-tilt-x').value = s.headTiltX;
+            document.getElementById('head-tilt-z').value = s.headTiltZ;
+            document.getElementById('light-intensity').value = s.intensity;
+            document.getElementById('light-angle').value = s.angle;
+            document.getElementById('light-color').value = s.colorVal;
+        }
+
+        function setupEventListeners() {
+            // Radio Buttons für Lampenwahl
+            document.querySelectorAll('input[name="lamp-select"]').forEach((radio, index) => {
+                radio.addEventListener('change', (e) => {
+                    if(e.target.checked) {
+                        activeLampIndex = index;
+                        updateUIControls(); 
+                    }
+                });
+            });
+
+            // Slider Helper
+            const bind = (id, key, isFloat) => {
+                const el = document.getElementById(id);
+                el.addEventListener('input', (e) => {
+                    const val = isFloat ? parseFloat(e.target.value) : parseInt(e.target.value);
+                    lampStates[activeLampIndex][key] = val;
+                    updateLampVisuals(activeLampIndex);
+                });
+            };
+
+            bind('arm-rotation', 'armRotation', false);
+            bind('arm-extension', 'armExtension', false);
+            bind('head-tilt-x', 'headTiltX', false);
+            bind('head-tilt-z', 'headTiltZ', false);
+            bind('light-intensity', 'intensity', true);
+            bind('light-angle', 'angle', true);
+            bind('light-color', 'colorVal', true);
+
+            // Wall Toggle Listener
+            document.getElementById('show-walls').addEventListener('change', (e) => {
+                if(roomWalls) roomWalls.visible = e.target.checked;
+            });
+
+            // Helper Checkbox
+            document.getElementById('show-helpers').addEventListener('change', () => {
+                updateLampVisuals(0);
+                updateLampVisuals(1);
+            });
+
+            // Resize
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        init();
+    </script>
+</body>
+</html>
